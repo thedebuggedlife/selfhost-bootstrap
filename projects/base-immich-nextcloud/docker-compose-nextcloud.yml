@@ -1,0 +1,66 @@
+# Source: https://github.com/docker-library/docs/tree/master/nextcloud
+networks:
+  nextcloud:
+  nextcloud-proxy:
+    name: nextcloud-proxy
+
+secrets:
+  nextcloud_db_root_password:
+    file: ${APPDATA_LOCATION:-/srv/appdata}/secrets/nextcloud_db_root_password
+  nextcloud_db_password:
+    file: ${APPDATA_LOCATION:-/srv/appdata}/secrets/nextcloud_db_password
+
+services:
+  traefik:
+    networks:
+      - nextcloud-proxy
+
+  nextcloud-db:
+    container_name: nextcloud_db
+    image: mariadb:10.6
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    networks:
+      - nextcloud
+    secrets:
+      - nextcloud_db_root_password
+      - nextcloud_db_password
+    volumes:
+      - ${APPDATA_LOCATION:-/srv/appdata}/nextcloud/db:/var/lib/mysql
+      - ${NEXTCLOUD_DATA_LOCATION:-/usr/local/nextcloud}:/var/www/html/data
+    environment:
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/nextcloud_db_root_password
+      - MYSQL_PASSWORD_FILE=/run/secrets/nextcloud_db_password
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_SUBDOMAIN:-nextcloud}.${CF_DOMAIN_NAME}
+      - SMTP_HOST=${SMTP_SERVER}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_SECURE=${SMTP_SECURE}
+      - SMTP_NAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - MAIL_FROM_ADDRESS=${SMTP_SENDER}
+      - MAIL_DOMAIN=${CF_DOMAIN_NAME}
+      - APACHE_DISABLE_REWRITE_IP=1
+      - TRUSTED_PROXIES=traefik
+
+  nextcloud-app:
+    container_name: nextcloud_app
+    image: nextcloud:${NEXTCLOUD_VERSION:-production}
+    restart: always
+    ports:
+      - 8080:80
+    depends_on:
+      - nextcloud-db
+    networks:
+      - nextcloud
+      - nextcloud-proxy
+    secrets:  
+      - nextcloud_db_password
+    volumes:
+      - ${APPDATA_LOCATION:-/srv/appdata}/nextcloud:/var/www/html
+    environment:
+      - MYSQL_PASSWORD_FILE=/run/secrets/nextcloud_db_password
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_HOST=db

@@ -121,6 +121,7 @@ save_env_id() {
 #           $2 Text prompt
 #           $3 If `true`, offer existing variable value as default [default=true]
 #           $4 If `true`, do not allow empty values [default=true]
+#           $5 If `true`, mask the input (password) [default=false]
 ask_for_env() {
     local env_variable=$1
     local prompt=$2
@@ -670,6 +671,8 @@ download_appdata() {
 
 # Ask for any variables that aren't yet defined in the .env file
 ask_for_variables() {
+    # Global Settings
+
     if [ -n "$APPDATA_OVERRIDE" ]; then
         save_env APPDATA_LOCATION "${APPDATA_OVERRIDE%/}"
     else
@@ -677,11 +680,20 @@ ask_for_variables() {
     fi
     ask_for_env TZ "Server Timezone"
     ask_for_env CERT_ACME_EMAIL "Email For Certificate Registration"
-    ask_for_env TAILSCALE_API_KEY "Tailscale API Key (optional)" true false
+
+    # Tailscale Settings
+
+    ask_for_env TAILSCALE_API_KEY "Tailscale API Key"
+
+    # Cloudflare Settings
+
     ask_for_env CF_DNS_API_TOKEN "Cloudflare DNS API Token"
     ask_for_env CF_DOMAIN_NAME "Domain Name (e.g. example.com)"
     save_env CF_DOMAIN_CN "\"$(echo "$CF_DOMAIN_NAME" | sed 's/^/dc=/' | sed 's/\./,dc=/g')\""
     ask_for_env CF_TUNNEL_NAME "Cloudflare Tunnel Name"
+
+    # SMTP Server Settings
+
     ask_for_env SMTP2GO_API_KEY "SMTP2GO API Key"
     if [ -z "$SMTP_SENDER" ]; then
         save_env SMTP_SENDER "noreply@${CF_DOMAIN_NAME}"
@@ -692,21 +704,38 @@ ask_for_variables() {
         ask_for_env SMTP_PASSWORD "SMTP Server Password"
         ask_for_env SMTP_SERVER "SMTP Server Address"
         ask_for_env SMTP_PORT "SMTP Server Port"
+        ask_for_env SMTP_SECURE "SMTP Security Protocol (optional) ('tls' or 'ssl')" true false
     else
         if [ -z "$SMTP_USERNAME" ]; then
             save_env SMTP_USERNAME "selfhost@${CF_DOMAIN_NAME}"
         fi
         ask_for_env SMTP_USERNAME "SMTP Server Username"
     fi
+
+    # Authelia Settings
+
     ask_for_env AUTHELIA_THEME "Authelia admin website theme (dark | light)"
+
+    # LLDAP Settings
+
     ask_for_env LLDAP_ADMIN_PASSWORD "LLDAP Administrator Password" true true true
+
+    # Portainer Settings
+
     ask_for_env PORTAINER_ADMIN_PASSWORD "Portainer Administrator Password" true true true
-    ask_for_env IMMICH_SUBDOMAIN "Immich subdomain"
-    if [ -z "$IMMICH_UPLOAD_LOCATION" ]; then
-        IMMICH_UPLOAD_LOCATION_DEFAULT="${APPDATA_LOCATION%/}/immich/upload"
-    fi
+
+    # Immich Settings
+
+    ask_for_env IMMICH_VERSION "Version of Immich to install"
+    ask_for_env IMMICH_SUBDOMAIN "Subdomain under ${CF_DOMAIN_NAME} to use for Immich"
     ask_for_env IMMICH_UPLOAD_LOCATION "Immich photo upload location"
     ask_for_env IMMICH_DEFAULT_QUOTA "Immich default user storage quota (in GB)"
+
+    # Nextcloud Settings
+
+    ask_for_env NEXTCLOUD_VERSION "Version of Nextcloud to install"
+    ask_for_env NEXTCLOUD_SUBDOMAIN "Subdomain under ${CF_DOMAIN_NAME} to use for Nextcloud"
+    ask_for_env NEXTCLOUD_DATA_LOCATION "Nextcloud document storage location"
 }
 
 # Create any missing secret files
@@ -725,6 +754,8 @@ save_secrets() {
     create_secret "${SECRETS_PATH}ldap_authelia_password"
     create_secret "${SECRETS_PATH}oidc_hmac_secret"
     create_secret "${SECRETS_PATH}immich_db_password"
+    create_secret "${SECRETS_PATH}nextcloud_db_root_password"
+    create_secret "${SECRETS_PATH}nextcloud_db_password"
     create_password_digest_pair "${SECRETS_PATH}oidc_immich"
     create_password_digest_pair "${SECRETS_PATH}oidc_nextcloud"
     create_password_digest_pair "${SECRETS_PATH}oidc_grafana"
@@ -1305,7 +1336,7 @@ RUN_BOOTSTRAP=
 RESUME=false
 ENV_FILE=.env
 COMPOSE_PROJECT=self-host
-COMPOSE_OPTIONS="-f docker-compose.yml -f docker-compose-immich.yml"
+COMPOSE_OPTIONS="-f docker-compose.yml -f docker-compose-immich.yml -f docker-compose-nextcloud.yml"
 COMPOSE_UP_OPTIONS=
 
 ################################################################################
@@ -1491,6 +1522,7 @@ if [ "$USE_SMTP2GO" = "true" ]; then
 
     save_env SMTP_SERVER mail.smtp2go.com
     save_env SMTP_PORT "587"
+    save_env SMTP_SECURE "tls"
 fi
 
 log_header "Preparing secret files"
